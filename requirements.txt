@@ -8,3 +8,5 @@ jupyter
 pytest
 black
 flake8
+flask
+plotly

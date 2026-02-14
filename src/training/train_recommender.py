@@ -7,7 +7,7 @@ from sklearn.neighbors import NearestNeighbors
 
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'. .')))
-from utils.data_loader  import DataLoader
+from src.utils.data_loader  import DataLoader
 
 #Configuration
 MODEL_OUTPUT_PATH="models/recommender_artifacts"
@@ -35,12 +35,12 @@ def main():
         columns='hotel_id',
         values='days',
         aggfunc='sum'
-    ).fillno(0)
+    ).fillna(0)
 
     #Convert sparse matrix format (good for scale but optional)
     # For this sclae,dense dataframe is fine.
 
-    print(f"Matrix Shape :{user_hotel_matirx.shape}")
+    print(f"Matrix Shape :{user_hotel_matrix.shape}")
     # 3. Train NearestNeighbors Model (Collaborativ Filtering)
     # We use cosine similarity to find users with similar booking patterns 
     model_knn=NearestNeighbors(metric='cosine',algorithm='brute')
@@ -63,5 +63,3 @@ def main():
 
 if __name__== "__main__":
     main()
-
-
