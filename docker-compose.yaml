@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deployment/docker/api.Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./models:/app/models  # Mount models for persistence
+      - ./logs:/app/logs
+    environment:
+      - MLFLOW_TRACKING_URI=file:///app/mlruns
+
+  ui:
+    build:
+      context: .
+      dockerfile: deployment/docker/ui.Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:5000  # Internal Docker network address
+    depends_on:
+      - api
