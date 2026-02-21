@@ -7,7 +7,7 @@ from flask import Flask,request,jsonify
 # Fix path to import modules
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'. .')))
-from features import FeatureEngineer
+from src.features import FeatureEngineer
 
 app = Flask(__name__)
 

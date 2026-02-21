@@ -11,7 +11,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 # Clean Import
 from src.utils.data_loader import DataLoader
-from features import FeatureEngineer
+from src.features import FeatureEngineer
 
 # Configuration
 EXPERIMENT_NAME = "Flight_Price_Prediction"
