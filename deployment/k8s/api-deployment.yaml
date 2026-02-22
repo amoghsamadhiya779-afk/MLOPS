@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voyage-api
+spec:
+  replicas: 2  # Running 2 copies of the API for High Availability
+  selector:
+    matchLabels:
+      app: voyage-api
+  template:
+    metadata:
+      labels:
+        app: voyage-api
+    spec:
+      containers:
+      - name: voyage-api
+        image: voyage-api:latest
+        imagePullPolicy: IfNotPresent # Uses local image if available
+        ports:
+        - containerPort: 5000
+        env:
+        - name: FLASK_APP
+          value: "src/api/app.py"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

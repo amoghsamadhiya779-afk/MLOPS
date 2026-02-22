@@ -22,13 +22,10 @@ services:
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
       - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW_UID=50000
     volumes:
       - ./dags:/opt/airflow/dags
-      - ./src:/opt/airflow/dags/repo/src  # Mount source code
-      - ./data:/opt/airflow/dags/repo/data # Mount data
-      - ./models:/opt/airflow/dags/repo/models # Mount models (to save artifacts)
-      - ./logs:/opt/airflow/logs
+      - .:/opt/airflow/dags/repo  # This mounts your entire project folder
+      - ./data/raw:/opt/airflow/dags/repo/data  # Maps your local raw data directly to where the script expects it
     depends_on:
       - postgres
 
@@ -42,13 +39,10 @@ services:
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
       - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW_UID=50000
     volumes:
       - ./dags:/opt/airflow/dags
-      - ./src:/opt/airflow/dags/repo/src
-      - ./data:/opt/airflow/dags/repo/data
-      - ./models:/opt/airflow/dags/repo/models
-      - ./logs:/opt/airflow/logs
+      - .:/opt/airflow/dags/repo  # This mounts your entire project folder
+      - ./data/raw:/opt/airflow/dags/repo/data  # Maps your local raw data directly to where the script expects it
     depends_on:
       - postgres
 

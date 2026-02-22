@@ -10,3 +10,6 @@ black
 flake8
 flask
 plotly
+requests
+mlflow
+streamlit

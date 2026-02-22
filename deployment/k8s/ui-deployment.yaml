@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voyage-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: voyage-ui
+  template:
+    metadata:
+      labels:
+        app: voyage-ui
+    spec:
+      containers:
+      - name: voyage-ui
+        image: voyage-ui:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8501
+        env:
+        - name: API_URL
+          value: "http://voyage-api-service:5000"  # Points to the API Service
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1024Mi"
+            cpu: "1000m"

@@ -1,0 +1,14 @@
+#Ignore Airflow logs and symlinks (Fixes the logs/scheduler/latest error)
+
+logs/
+
+#Ignore Python cache and virtual environments
+
+pycache/
+*.pyc
+*.pyo
+venv/
+env/
+.env
+
+#Note: We DO NOT ignore data/ or models/ because the UI and API need them to function!

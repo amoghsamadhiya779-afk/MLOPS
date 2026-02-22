@@ -1,87 +1,57 @@
-import sys 
-import os 
-import joblib
+import os
 import pandas as pd
-import logging 
-from sklearn.model_selection import train_test_split
+import logging
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
+import joblib
 
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'. .')))
-
-from src.utils.data_loader import DataLoader
-from src.features import FeatureEngineer
-
-#Setup Logging 
 logging.basicConfig(level=logging.INFO)
-logger=logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
-MODELS_DIR ="models"
-os.makedirs(MODELS_DIR,exist_ok=True)
+# Absolute paths based on Airflow Docker container
+BASE_DIR = "/opt/airflow/dags/repo"
+DATA_FILE = os.path.join(BASE_DIR, "data", "flights.csv")
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+PROCESSED_FILE = os.path.join(MODEL_DIR, "processed_data.csv")
+
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 def ingest_data():
-    """ Task :1 Load Data
-    """
-    logger.info("Starting Data Ingestion ....")
-    loader = DataLoader()
-    flights,_,_=loader.load_all_data()
-    #In a real scenario , you might validate data schema here
-    logger.info(F"Data Ingested . Flights Shape :{flights.shape}")
+    logger.info("Task 1: Ingesting Data...")
+    if not os.path.exists(DATA_FILE):
+        raise FileNotFoundError(f"CRITICAL: Cannot find data at {DATA_FILE}. Please create data/flights.csv!")
+    
+    df = pd.read_csv(DATA_FILE)
+    logger.info(f"Successfully loaded {len(df)} rows of flight data.")
     return "Data Ingested"
+
 def preprocess_data():
-    """ Task 2: Feature Engineering
-    """
-    logger.info("Starting Preprocessing.......")
-    loader = DataLoader()
-    flights=loader.preprocess_flights(flights)
-
-    engineer= FeatureEngineer(artifacts_dir=MODELS_DIR)
-
-    X =flights.drop(column=['price'],errors='ignore')
-    y=flights['price']
-
-    #Fit and Transform 
-    X_processed=engineer.fit_transform(X)
-
-    # Save Processed data for training step 
-    # We save to csv to pass data between Airflow tasks 
-    X_processed['target price'] =y
-    X_processed.to_csv(os.path.join(MODELS_DIR,"processed_train_data.csv"),index=False)
-    logger.info ("Preprocessing Complete .Artifacts saved .")
+    logger.info("Task 2: Preprocessing Data...")
+    df = pd.read_csv(DATA_FILE)
+    
+    # Simple preprocessing: Convert text to numbers for the model
+    df['agency_code'] = df['agency'].astype('category').cat.codes
+    df['class_code'] = df['flightType'].astype('category').cat.codes
+    
+    # Select features
+    processed_df = df[['agency_code', 'class_code', 'distance', 'time', 'price']]
+    processed_df.to_csv(PROCESSED_FILE, index=False)
+    logger.info("Data preprocessed and saved.")
 
 def train_model():
-    """ Task 3. MODEL TRAINING
-    """    
-    logger.info("Starting Model Training ....")
-    data_path =os.path.join(MODELS_DIR,"processed_train_data.csv")
-    if not os.path.exists(data_path):
-        raise FileNotFoundError("Processed data not found. run preprocessing  first.")
+    logger.info("Task 3: Training Model...")
+    df = pd.read_csv(PROCESSED_FILE)
     
-    df =pd.read_csv(data_path)
-
-    X=df.drop(columns=['target_price'])
-    y=df['target_price']
-
-    X_train,X_test,y_train,y_test=train_test_split(X,y,test_size=0.2,random_state=42)
+    X = df.drop(columns=['price'])
+    y = df['price']
     
-    rf=RandomForestRegressor(n_estimators=100,max_depth=10,random_state=42)
-    rf.fit(X_train,y_train)
+    model = RandomForestRegressor(n_estimators=10, random_state=42)
+    model.fit(X, y)
+    
+    model_path = os.path.join(MODEL_DIR, "flight_model.joblib")
+    joblib.dump(model, model_path)
+    logger.info(f"Model successfully trained and saved to {model_path}!")
 
-
-    #Evaluate 
-    preds=rf.predict(X_test)
-    rmse=mean_squared_error(y_test,preds,squared=False)
-    logger.info(f"Model Trained .RMSE :{rmse}")
-
-    #Save Model 
-    joblib.dump(rf,os.path.join(MODELS_DIR,"flight_price_rf.joblib"))
-    logger.info("Model saved successfully .")
-
-if __name__=="__main__":
-    #Allow manual execution for testing
+if __name__ == "__main__":
     ingest_data()
     preprocess_data()
     train_model()
-        
-    

@@ -15,9 +15,27 @@ data/processed/*
 !data/processed/.gitkeep
 
 # Logs and Reports
-logs/*
+logs/data/
 reports/*
 
 # OS
 .DS_Store
 Thumbs.db
+#Ignore Airflow logs (This fixes your fatal Git error!)
+
+logs/
+
+#Ignore Python cache files
+
+pycache/
+*.pyc
+*.pyo
+
+#Ignore virtual environments
+
+venv/
+env/
+
+#Ignore secret keys and passwords
+
+.env

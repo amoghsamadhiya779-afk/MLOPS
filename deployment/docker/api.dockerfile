@@ -21,3 +21,5 @@ ENV FLASK_APP=src/api/app.py
 
 # Run the API server
 CMD ["python", "manage.py", "run-api"]
+
+
