@@ -18,7 +18,8 @@ if project_root not in sys.path:
 from src.utils.data_loader import DataLoader
 
 # --- CONFIGURATION ---
-API_URL = "http://localhost:5000"
+API_URL = os.getenv("API_URL", "http://localhost:5000")
+
 st.set_page_config(
     page_title="Voyage Analytics Enterprise",
     layout="wide",
@@ -35,13 +36,19 @@ def navigate_to(page_name):
     st.session_state.page = page_name
 
 # --- DATA LOADING ---
-@st.cache_data
+@st.cache_data(ttl=3600) # Cache for 1 hour to prevent constant disk reads
 def load_data_snapshot():
     loader = DataLoader()
     try:
         flights, hotels, users = loader.load_all_data()
+        
+        # Precompute IDs for joining later
+        if hotels is not None and not hotels.empty:
+            hotels['hotel_id'] = hotels['place'] + " - " + hotels['name']
+            
         return flights, hotels, users
-    except:
+    except Exception as e:
+        st.error(f"Data Loading Error: {e}")
         return None, None, None
 
 flights_df, hotels_df, users_df = load_data_snapshot()
@@ -298,7 +305,7 @@ def safe_api_predict_price(payload):
     try:
         response = requests.post(f"{API_URL}/predict/price", json=payload, timeout=2)
         if response.status_code == 200:
-            return response.json().get("predicted_price"), "Live API"
+            return response.json().get("predicted_price"), "Live API (Random Forest)"
     except:
         pass
     
@@ -307,18 +314,29 @@ def safe_api_predict_price(payload):
     dist_rate = 0.5
     class_mult = {"firstClass": 2.5, "premium": 1.5, "economic": 1.0}
     price = (base + (payload['distance'] * dist_rate)) * class_mult.get(payload['flightType'], 1.0)
-    return round(price * random.uniform(0.95, 1.05), 2), "Offline Model"
+    return round(price * random.uniform(0.95, 1.05), 2), "Offline Heuristics"
 
 def safe_api_predict_gender(payload):
     try:
         response = requests.post(f"{API_URL}/predict/gender", json=payload, timeout=2)
         if response.status_code == 200:
-            return response.json().get("predicted_gender"), "Live API"
+            return response.json().get("predicted_gender"), "Live API (Pipeline)"
     except:
         pass
     
     name = payload['name'].lower()
-    return "female" if name[-1] in ['a', 'e', 'i', 'y'] else "male", "Offline Model"
+    return "female" if name[-1] in ['a', 'e', 'i', 'y'] else "male", "Offline Fallback"
+
+def safe_api_recommend_hotels(user_code):
+    """Hits the recommendation endpoint and returns a list of hotel IDs"""
+    try:
+        response = requests.post(f"{API_URL}/recommend", json={"userCode": int(user_code)}, timeout=3)
+        if response.status_code == 200:
+            return response.json().get("recommendations", []), "Live API (KNN Collaborative Filtering)"
+    except Exception as e:
+        pass
+    
+    return [], "Offline System (API Down)"
 
 # --- LAYOUT COMPONENTS ---
 
@@ -329,7 +347,7 @@ def render_header():
     st.markdown(f"""
     <div class="nav-bar">
         <div class="nav-brand">VOYAGE <span style="color:{T_ACCENT_ORANGE}">AI</span></div>
-        <div style="font-size: 0.8rem; letter-spacing: 1px; color: {T_TEXT_MAIN}; opacity: 0.7;"</div>
+        <div style="font-size: 0.8rem; letter-spacing: 1px; color: {T_TEXT_MAIN}; opacity: 0.7;">ENTERPRISE MLOPS PLATFORM</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -350,7 +368,6 @@ def render_header():
             st.rerun()
 
 def render_hero_slideshow():
-    # Only render if text color is readable (White text is hardcoded in CSS for slides, but overlay ensures contrast)
     st.markdown(f"""
     <div class="slideshow-container">
         <div class="slide"></div>
@@ -373,14 +390,32 @@ if st.session_state.page == "Dashboard":
     
     st.markdown(f"<p style='color:{T_TEXT_MAIN}; opacity:0.7; margin-bottom:2rem;'>Real-time analytics engine processing global travel data streams.</p>", unsafe_allow_html=True)
     
+    # INTERACTIVITY: Dynamic Filtering
+    if flights_df is not None:
+        with st.expander("🔍 Filter Analytics Data", expanded=False):
+            fc1, fc2, fc3 = st.columns(3)
+            with fc1:
+                sel_agency = st.multiselect("Select Agency", options=flights_df['agency'].unique(), default=[])
+            with fc2:
+                sel_type = st.multiselect("Flight Class", options=flights_df['flightType'].unique(), default=[])
+            
+            # Apply Filters
+            filtered_flights = flights_df.copy()
+            if sel_agency:
+                filtered_flights = filtered_flights[filtered_flights['agency'].isin(sel_agency)]
+            if sel_type:
+                filtered_flights = filtered_flights[filtered_flights['flightType'].isin(sel_type)]
+    else:
+        filtered_flights = None
+
     # 1. Key Metrics (Glass Containers)
     m1, m2, m3, m4 = st.columns(4)
     
     with m1:
         st.markdown(f"""
         <div class="glass-container">
-            <div class="metric-label">Total Flights Processed</div>
-            <div class="metric-value">{f"{len(flights_df):,}" if flights_df is not None else "0"}</div>
+            <div class="metric-label">Flights Analyzed</div>
+            <div class="metric-value">{f"{len(filtered_flights):,}" if filtered_flights is not None else "0"}</div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -393,7 +428,7 @@ if st.session_state.page == "Dashboard":
         """, unsafe_allow_html=True)
         
     with m3:
-        avg = f"{flights_df['price'].mean():.0f}" if flights_df is not None else "0"
+        avg = f"{filtered_flights['price'].mean():.0f}" if filtered_flights is not None and not filtered_flights.empty else "0"
         st.markdown(f"""
         <div class="glass-container">
             <div class="metric-label">Avg Ticket Price</div>
@@ -402,10 +437,18 @@ if st.session_state.page == "Dashboard":
         """, unsafe_allow_html=True)
         
     with m4:
+        # Check API Health dynamically
+        try:
+            api_status = "Online" if requests.get(f"{API_URL}/health", timeout=1).status_code == 200 else "Degraded"
+            status_color = "#4CAF50" if api_status == "Online" else "#FF9800"
+        except:
+            api_status = "Offline"
+            status_color = "#F44336"
+
         st.markdown(f"""
         <div class="glass-container">
-            <div class="metric-label">System Health</div>
-            <div class="metric-value" style="color: #4CAF50 !important; -webkit-text-fill-color: #4CAF50;">99.9%</div>
+            <div class="metric-label">API Health</div>
+            <div class="metric-value" style="color: {status_color} !important; -webkit-text-fill-color: {status_color}; font-size: 2.5rem;">{api_status}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -413,10 +456,9 @@ if st.session_state.page == "Dashboard":
     c1, c2 = st.columns([2, 1])
     
     with c1:
-        
         st.markdown("<h3>Price Distribution Analysis</h3>", unsafe_allow_html=True)
-        if flights_df is not None:
-            fig = px.histogram(flights_df, x="price", color="agency", nbins=50,
+        if filtered_flights is not None and not filtered_flights.empty:
+            fig = px.histogram(filtered_flights, x="price", color="agency", nbins=50,
                                color_discrete_sequence=[T_ACCENT_ORANGE, "#333", "#666"])
             fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", 
                               font=dict(color=T_TEXT_MAIN, family="Space Grotesk"),
@@ -425,7 +467,6 @@ if st.session_state.page == "Dashboard":
         st.markdown("</div>", unsafe_allow_html=True)
             
     with c2:
-       
         st.markdown("<h3>Corporate Client Share</h3>", unsafe_allow_html=True)
         if users_df is not None:
             fig2 = px.pie(users_df, names='company',
@@ -438,10 +479,9 @@ if st.session_state.page == "Dashboard":
 
     c3, c4 = st.columns(2)
     with c3:
-        
         st.markdown("<h3>Flight Price vs Distance</h3>", unsafe_allow_html=True)
-        if flights_df is not None:
-            sample_df = flights_df.sample(min(1000, len(flights_df)))
+        if filtered_flights is not None and not filtered_flights.empty:
+            sample_df = filtered_flights.sample(min(1000, len(filtered_flights)))
             fig3 = px.scatter(sample_df, x="distance", y="price", color="flightType",
                               color_discrete_sequence=[T_ACCENT_ORANGE, "#aaa", "#555"])
             fig3.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
@@ -451,10 +491,9 @@ if st.session_state.page == "Dashboard":
         st.markdown("</div>", unsafe_allow_html=True)
 
     with c4:
-        
         st.markdown("<h3>Agency Performance</h3>", unsafe_allow_html=True)
-        if flights_df is not None:
-            agency_counts = flights_df['agency'].value_counts().reset_index()
+        if filtered_flights is not None and not filtered_flights.empty:
+            agency_counts = filtered_flights['agency'].value_counts().reset_index()
             agency_counts.columns = ['Agency', 'Count']
             fig4 = px.bar(agency_counts, x='Agency', y='Count',
                           color_discrete_sequence=[T_ACCENT_ORANGE])
@@ -468,7 +507,6 @@ if st.session_state.page == "Dashboard":
 elif st.session_state.page == "Flight Studio":
     st.markdown("<h1>Flight Price Engine</h1>", unsafe_allow_html=True)
     
-  
     with st.form("flight_form"):
         c1, c2, c3, c4, c5 = st.columns(5)
         cities = list(CITY_COORDS.keys())
@@ -497,7 +535,7 @@ elif st.session_state.page == "Flight Studio":
             <div class="glass-container" style="text-align: center; height: 100%; display: flex; flex-direction: column; justify-content: center;">
                 <div class="metric-label">Estimated Fare</div>
                 <div class="metric-value">R$ {price:.2f}</div>
-                <div style="font-size: 0.8rem; color: {T_TEXT_MAIN}; opacity: 0.6; margin-top: 1rem;">Status: {status}</div>
+                <div style="font-size: 0.8rem; color: {T_TEXT_MAIN}; opacity: 0.6; margin-top: 1rem;">Provider: {status}</div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -525,11 +563,18 @@ elif st.session_state.page == "Identity Lab":
     col_input, col_viz = st.columns(2)
     
     with col_input:
-       
         st.markdown("<h3>Passenger Details</h3>", unsafe_allow_html=True)
-        name = st.text_input("Full Name", "Alex Smith")
-        company = st.selectbox("Company", ["4You", "Umbrella LTDA", "Wonka Industries"])
-        age = st.slider("Age", 18, 90, 30)
+        
+        # Interactive element: Pick a random existing user to populate form
+        random_user = {"name": "Alex Smith", "company": "4You", "age": 30}
+        if users_df is not None and not users_df.empty:
+            if st.button("🎲 Auto-Fill from Database"):
+                row = users_df.sample(1).iloc[0]
+                random_user = {"name": row['name'], "company": row['company'], "age": int(row['age'])}
+
+        name = st.text_input("Full Name", random_user['name'])
+        company = st.selectbox("Company", ["4You", "Umbrella LTDA", "Wonka Industries"], index=["4You", "Umbrella LTDA", "Wonka Industries"].index(random_user['company']) if random_user['company'] in ["4You", "Umbrella LTDA", "Wonka Industries"] else 0)
+        age = st.slider("Age", 18, 90, random_user['age'])
         
         if st.button("ANALYZE PROFILE"):
             payload = {"name": name, "company": company, "age": age}
@@ -539,13 +584,12 @@ elif st.session_state.page == "Identity Lab":
             <div style="margin-top: 2rem; padding: 2rem; border-left: 4px solid {T_ACCENT_ORANGE}; background: {T_BG}; border-radius: 8px;">
                 <div class="metric-label">Analysis Result</div>
                 <div class="metric-value" style="font-size: 2.5rem;">{gender.upper()}</div>
-                <div style="font-size: 0.8rem; margin-top: 0.5rem; color: {T_TEXT_MAIN};">Confidence: 94.2% ({status})</div>
+                <div style="font-size: 0.8rem; margin-top: 0.5rem; color: {T_TEXT_MAIN};">Pipeline: {status}</div>
             </div>
             """, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_viz:
-     
         st.markdown("<h3>Demographic Distribution</h3>", unsafe_allow_html=True)
         if users_df is not None:
             fig = px.bar(users_df['gender'].value_counts().reset_index(), x='gender', y='count',
@@ -583,27 +627,62 @@ elif st.session_state.page == "Hotel Concierge":
     c1, c2 = st.columns([1, 3])
     
     with c1:
-       
         st.markdown("<h3>Search Criteria</h3>", unsafe_allow_html=True)
-        uid = st.text_input("User ID", "1001")
+        
+        # Real Interactive Element: Give them valid User IDs to test with
+        valid_uids = users_df['userCode'].unique().tolist()[:10] if users_df is not None else [1001, 1002, 1003]
+        uid = st.selectbox("Select User Profile (ID)", valid_uids)
+        
         city = st.selectbox("Target City", list(CITY_COORDS.keys()))
-        if st.button("LOCATE HOTELS"):
+        if st.button("GENERATE RECOMMENDATIONS"):
             st.session_state.h_search = True
             st.session_state.h_city = city
+            st.session_state.h_uid = uid
         st.markdown("</div>", unsafe_allow_html=True)
             
     with c2:
         if st.session_state.get('h_search'):
             st.markdown(f"""<div class="glass-container">""", unsafe_allow_html=True)
-            st.markdown(f"<h3>Top Selections for {st.session_state.h_city}</h3>", unsafe_allow_html=True)
             
-            hotels = [
-                {"name": "Grand Hyatt", "rating": 5, "price": "R$ 850"},
-                {"name": "Sheraton Premium", "rating": 4, "price": "R$ 620"},
-                {"name": "Radisson Blu", "rating": 4, "price": "R$ 540"}
-            ]
+            # --- THE REAL API CALL ---
+            recommended_ids, status = safe_api_recommend_hotels(st.session_state.h_uid)
+            st.markdown(f"<h3>AI Curated Selections for {st.session_state.h_city}</h3>", unsafe_allow_html=True)
+            st.markdown(f"<p style='font-size: 0.8rem; color: {T_TEXT_MAIN}; opacity: 0.6;'>Engine: {status}</p>", unsafe_allow_html=True)
             
-            for h in hotels:
+            final_hotels_to_display = []
+
+            if recommended_ids and hotels_df is not None:
+                # Filter real dataframe based on ML API output
+                real_recs = hotels_df[hotels_df['hotel_id'].isin(recommended_ids)]
+                # Filter by the city they selected
+                city_recs = real_recs[real_recs['place'] == st.session_state.h_city]
+                
+                for _, row in city_recs.iterrows():
+                    final_hotels_to_display.append({
+                        "name": row['name'],
+                        "rating": int(row.get('days', 4)), # Mocking rating with days for UI sake
+                        "price": f"R$ {row['price']:.2f}"
+                    })
+
+            # Fallback if API is down or user has no data in that city
+            if not final_hotels_to_display:
+                if hotels_df is not None:
+                    # Get top 3 most popular hotels in that city from the raw data
+                    city_hotels = hotels_df[hotels_df['place'] == st.session_state.h_city]
+                    top_city_hotels = city_hotels.groupby('name').agg({'price':'mean', 'days':'sum'}).sort_values('days', ascending=False).head(3).reset_index()
+                    
+                    for _, row in top_city_hotels.iterrows():
+                        final_hotels_to_display.append({
+                            "name": row['name'],
+                            "rating": random.randint(3, 5), # Fallback mockup
+                            "price": f"R$ {row['price']:.2f}"
+                        })
+                else:
+                    # Absolute fallback if data failed to load
+                    final_hotels_to_display = [{"name": "System Offline - Cannot load data", "rating": 0, "price": "R$ 0"}]
+            
+            # Render the results
+            for h in final_hotels_to_display:
                 st.markdown(f"""
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 1.5rem; border-bottom: {T_DIVIDER}; transition: background 0.3s;">
                     <div>
