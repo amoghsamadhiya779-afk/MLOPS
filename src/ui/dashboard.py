@@ -15,8 +15,6 @@ project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from src.utils.data_loader import DataLoader
-
 # --- CONFIGURATION ---
 API_URL = os.getenv("API_URL", "http://localhost:5000")
 
@@ -35,24 +33,6 @@ if 'theme' not in st.session_state:
 def navigate_to(page_name):
     st.session_state.page = page_name
 
-# --- DATA LOADING ---
-@st.cache_data(ttl=3600) # Cache for 1 hour to prevent constant disk reads
-def load_data_snapshot():
-    loader = DataLoader()
-    try:
-        flights, hotels, users = loader.load_all_data()
-        
-        # Precompute IDs for joining later
-        if hotels is not None and not hotels.empty:
-            hotels['hotel_id'] = hotels['place'] + " - " + hotels['name']
-            
-        return flights, hotels, users
-    except Exception as e:
-        st.error(f"Data Loading Error: {e}")
-        return None, None, None
-
-flights_df, hotels_df, users_df = load_data_snapshot()
-
 # --- GEO DATA ASSETS ---
 CITY_COORDS = {
     "Recife (PE)": {"lat": -8.0476, "lon": -34.8770},
@@ -65,6 +45,74 @@ CITY_COORDS = {
     "Natal (RN)": {"lat": -5.7945, "lon": -35.2110},
     "Rio de Janeiro (RJ)": {"lat": -22.9068, "lon": -43.1729}
 }
+
+# --- DATA LOADING OR SYNTHETIC GENERATION ---
+@st.cache_data(ttl=3600) # Cache for 1 hour
+def load_or_generate_data():
+    """
+    Attempts to load real data. If not found (like on Streamlit Cloud),
+    generates highly realistic synthetic data for the portfolio UI.
+    """
+    try:
+        from src.utils.data_loader import DataLoader
+        loader = DataLoader()
+        f, h, u = loader.load_all_data()
+        if f is not None and not f.empty:
+            if h is not None and not h.empty:
+                h['hotel_id'] = h['place'] + " - " + h['name']
+            return f, h, u
+    except Exception:
+        pass # Fallback to Synthetic Generation
+    
+    # --- SYNTHETIC DATA GENERATION ---
+    np.random.seed(42) # FAANG Best Practice: Deterministic UI rendering
+    
+    # 1. Users
+    user_codes = np.arange(1001, 1501)
+    users = pd.DataFrame({
+        'userCode': user_codes,
+        'company': np.random.choice(['4You', 'Umbrella LTDA', 'Wonka Industries', 'Acme Corp'], 500),
+        'name': [f"User_{i}" for i in range(500)],
+        'gender': np.random.choice(['male', 'female', 'non-binary'], 500, p=[0.48, 0.48, 0.04]),
+        'age': np.random.normal(35, 10, 500).astype(int)
+    })
+    
+    # 2. Flights
+    agencies = ['FlyingDrops', 'Rainbow', 'CloudFy']
+    flight_types = ['firstClass', 'economic', 'premium']
+    cities = list(CITY_COORDS.keys())
+    
+    flights = pd.DataFrame({
+        'travelCode': np.arange(1, 5001),
+        'userCode': np.random.choice(user_codes, 5000),
+        'from': np.random.choice(cities, 5000),
+        'to': np.random.choice(cities, 5000),
+        'flightType': np.random.choice(flight_types, 5000, p=[0.1, 0.7, 0.2]),
+        'agency': np.random.choice(agencies, 5000),
+        'distance': np.random.uniform(300, 3000, 5000).round(2),
+        'time': np.random.uniform(1.0, 5.0, 5000).round(2),
+    })
+    # Realistic pricing logic: Base + Distance * Multiplier + Noise
+    base_price = 200 + (flights['distance'] * 0.5)
+    multiplier = flights['flightType'].map({'firstClass': 2.5, 'premium': 1.5, 'economic': 1.0})
+    flights['price'] = (base_price * multiplier * np.random.uniform(0.9, 1.1, 5000)).round(2)
+    
+    # 3. Hotels
+    hotel_names = ['Grand Hyatt', 'Sheraton Premium', 'Radisson Blu', 'Ibis Budget', 'Hilton']
+    hotels = pd.DataFrame({
+        'travelCode': np.random.choice(flights['travelCode'], 2000),
+        'userCode': np.random.choice(user_codes, 2000),
+        'name': np.random.choice(hotel_names, 2000),
+        'place': np.random.choice(cities, 2000),
+        'days': np.random.randint(1, 14, 2000),
+        'price': np.random.uniform(150, 900, 2000).round(2),
+    })
+    hotels['hotel_id'] = hotels['place'] + " - " + hotels['name']
+    
+    return flights, hotels, users
+
+flights_df, hotels_df, users_df = load_or_generate_data()
+
 
 # --- THEME VARIABLES ---
 T_ACCENT_ORANGE = "#FF6B00" 
@@ -573,7 +621,12 @@ elif st.session_state.page == "Identity Lab":
                 random_user = {"name": row['name'], "company": row['company'], "age": int(row['age'])}
 
         name = st.text_input("Full Name", random_user['name'])
-        company = st.selectbox("Company", ["4You", "Umbrella LTDA", "Wonka Industries"], index=["4You", "Umbrella LTDA", "Wonka Industries"].index(random_user['company']) if random_user['company'] in ["4You", "Umbrella LTDA", "Wonka Industries"] else 0)
+        
+        # Make sure company options include the synthetic companies
+        company_options = ["4You", "Umbrella LTDA", "Wonka Industries", "Acme Corp"]
+        company_index = company_options.index(random_user['company']) if random_user['company'] in company_options else 0
+        company = st.selectbox("Company", company_options, index=company_index)
+        
         age = st.slider("Age", 18, 90, random_user['age'])
         
         if st.button("ANALYZE PROFILE"):
