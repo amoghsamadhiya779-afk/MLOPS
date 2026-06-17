@@ -11,7 +11,7 @@ def main():
     parser.add_argument('task', type=str, help="Task: train-gender, train-price, train-recommender, eda, run-api, run-ui")
     args = parser.parse_args()
 
-    print(f"🚀 Running task: {args.task}")
+    print(f"Running task: {args.task}")
 
     try:
         if args.task == 'train-gender':
@@ -31,7 +31,7 @@ def main():
             run_eda()
 
         elif args.task == 'run-api':
-            # Run Flask App
+            # Run FastAPI App
             print("Starting API Server...")
             from src.api.app import main as run_api
             run_api()
@@ -42,12 +42,12 @@ def main():
             os.system("streamlit run src/ui/dashboard.py")
             
         else:
-            print(f"❌ Unknown task: {args.task}")
+            print(f"Unknown task: {args.task}")
             
     except ImportError as e:
-        print(f"❌ Import Error: {e}")
+        print(f"Import Error: {e}")
     except Exception as e:
-        print(f"❌ Execution Error: {e}")
+        print(f"Execution Error: {e}")
 
 if __name__ == "__main__":
     main()

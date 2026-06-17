@@ -13,13 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the current directory contents into the container at /app
 COPY . .
 
-# Expose port 5000 for the Flask app
+# Expose port 5000 for the FastAPI app
 EXPOSE 5000
-
-# Define environment variable
-ENV FLASK_APP=src/api/app.py
 
 # Run the API server
 CMD ["python", "manage.py", "run-api"]
-
-
