@@ -1,4 +1,3 @@
-import { CorporatePages } from '@/components/sections/CorporatePages';
 
 export default function DocsPage() {
   return (

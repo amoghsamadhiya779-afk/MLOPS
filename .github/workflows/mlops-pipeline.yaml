@@ -37,7 +37,7 @@ jobs:
 
     - name: Build API Docker Image
       run: |
-        docker build -t voyage-api:latest -f deployment/docker/api.Dockerfile .
+        docker build -t voyage-api:latest -f deployment/docker/api.dockerfile .
 
     - name: Build UI Docker Image
       run: |
