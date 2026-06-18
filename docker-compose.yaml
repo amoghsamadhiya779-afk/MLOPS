@@ -15,11 +15,11 @@ services:
 
   ui:
     build:
-      context: .
-      dockerfile: deployment/docker/ui.Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "8501:8501"
+      - "3000:3000"
     environment:
-      - API_URL=http://api:5000  # Internal Docker network address
+      - NEXT_PUBLIC_API_URL=http://api:5000  # Pass API URL to Next.js
     depends_on:
       - api

@@ -41,7 +41,7 @@ jobs:
 
     - name: Build UI Docker Image
       run: |
-        docker build -t voyage-ui:latest -f deployment/docker/ui.Dockerfile .
+        docker build -t voyage-ui:latest -f frontend/Dockerfile ./frontend
 
     - name: Build Airflow Docker Image
       run: |
